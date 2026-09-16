@@ -25,13 +25,6 @@ crypto miner. I was a computer geek. So I decided to build the best inference ri
 that could perform as well as Opus 4.X and GPT5.5 - the model I chose was Qwen3.8-Flash-Next. 
 
 
-It could fit in 128GB of VRAM.
-And that could be purchased for less than $2000 for some older models. But the rest of the hardware setup was a puzzle. 
-But this is where crypto mining for 7 years provided a little bit of an edge. How many 
-x16 slots did I need, what speed do they need to run, how much power is required by the card through not
-just the VGA power cables directly, but through the slots. Everyone is using server-grade mobos (= $$$) - but 
-could I use consumer grade? The PCIe switch was always an option, but would a consumer grade mobo allocate
-the proper memory address space, bar size, recognize 4 gpus moving through a single (only) x16 slot on the board?
 
 Yes.
 
