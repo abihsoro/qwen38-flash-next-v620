@@ -9,8 +9,9 @@
 Everything we did to get **Qwen3.8-Flash-Next (176 B, ~6 B active + 51 B-row CPU n-gram table)**
 serving at **~100 tokens/s decode single-stream (MTP=3) and ~68 t/s (MTP=0)** on a **4× Radeon PRO
 V620** box — and, once the batched-decode path is repaired, **~266 tokens/s of aggregate decode at
-12 concurrent users** — from hardware bring-up through a measured tuning campaign — captured here 
-as data, tables, tooling and a full work log.
+12 concurrent users** — from hardware bring-up through a measured tuning campaign — summarized here
+as a narrative, data, and tables. The full engineering log, raw data, and tooling are maintained in
+a private companion repository.
 
 ## The story
 
@@ -133,9 +134,8 @@ and scales *worse* than plain decode as concurrent load increases, so the concur
 configuration simply runs without it.
 
 **Power headroom, revisited.** Before any of the above, a separate, standalone rig (a single V620 on
-different hardware entirely — see
-[`coroshiba/amd-v620-soft-unlock`](https://forgejo.oroshiba.net/coroshiba/amd-v620-soft-unlock), building
-on [Tamalero/amd-v620-soft-unlock](https://github.com/Tamalero/amd-v620-soft-unlock)) had already proven
+different hardware entirely, building on
+[Tamalero/amd-v620-soft-unlock](https://github.com/Tamalero/amd-v620-soft-unlock)) had already proven
 these cards' stock 250 W floor could be unlocked via VBIOS patching, down to a supported 170 W. That
 groundwork informed this project's own approach to the power floor, but this box took the safer of the
 two available routes: a signed, PCI-ID-gated kernel-driver patch rather than a hex-edited VBIOS,
@@ -149,17 +149,14 @@ initially blamed on power or hardware before turning out to be a CPU swapped dur
 later a stale PCI-bus-address service that silently stopped clearing switch ACS bits after the PCIe
 tree re-enumerated. What's proven is proven with byte-identical outputs and repeat runs; what's still
 open — the full acceptance suite, the concurrency overlay's promotion, a slower-than-reference n-gram
-lookup — is written down as open, not quietly dropped. The full, warts-and-all account is the 1,800-line
-[`docs/rdna2/worklog/BRINGUP.md`](docs/rdna2/worklog/BRINGUP.md); everything below is the reference
-data it produced.
+lookup — is written down as open, not quietly dropped. The full, warts-and-all account lives in a
+private 1,800-line engineering log; everything below is a summary of what it produced.
 
 ## Every knob we turned
 
 Every variable manipulated across this project, why, and what happened. "Kept" means it's in the
 standing production config; "rejected" means it was measured and reverted; "inconclusive" means the
-evidence didn't cleanly settle it either way. Sources: `docs/rdna2/campaign/` (E-series),
-`docs/rdna2/RESULTS.md` §6–7, `docs/rdna2/HARDWARE.md`, `docs/rdna2/worklog/BRINGUP.md`,
-`docs/rdna2/worklog/VM207-MIGRATION.md`.
+evidence didn't cleanly settle it either way.
 
 | # | Category | Variable | Why we tried it | Result |
 |---|---|---|---|---|
@@ -190,7 +187,7 @@ evidence didn't cleanly settle it either way. Sources: `docs/rdna2/campaign/` (E
 | TTFT 40-word | 180 ms (MTP=0) · 260 ms (MTP=3) |
 | One-shot all-reduce 20 KB | **26.4 µs eager / 17.0 µs in-graph** |
 | Power under decode | 107–118 W/card @ **150 W caps**, 39–44 °C (SMU/PPT) |
-| **Wall power** (plug meter, 140 W cap) | **~157–163 W/GPU at the plug** → ~1.12–1.16× the cap; **≈630 W for four cards** (extrapolated from the isolated 2-GPU pair) and **≈1.0 kW** for the box incl. switch + CPU/mobo — the SMU counter excludes bus/riser/switch losses, PSU loss and the CPU; see `docs/rdna2/HARDWARE.md` |
+| **Wall power** (plug meter, 140 W cap) | **~157–163 W/GPU at the plug** → ~1.12–1.16× the cap; **≈630 W for four cards** (extrapolated from the isolated 2-GPU pair) and **≈1.0 kW** for the box incl. switch + CPU/mobo — the SMU counter excludes bus/riser/switch losses, PSU loss and the CPU |
 | **Aggregate decode, 8 concurrent** (MTP=0, s=8) | **248 t/s** (single stream is 68 t/s) |
 | **Aggregate decode, 12 concurrent** (MTP=0, s=16, C16 overlay) | **266 t/s** |
 | Aggregate decode, 12 concurrent (MTP=3, s=4) | 124 t/s (0.89–1.0x scaling; MTP=3 does **not** scale) |
@@ -211,74 +208,34 @@ output token-for-token. The specific accepted and rejected changes are not publi
   MTP=3 delivers 87 t/s aggregate (~95 decode) with per-stream speed collapsing 107 → 24 t/s; MTP=0
   scales 68 → 115 (C2) → 176 (C4) → 248 (C8) → **266 t/s (C12)**. Root cause sits in the
   speculative-decode lookup path and is specific to this fork; the concurrent-serving configuration
-  simply runs without MTP. (`docs/rdna2/RESULTS.md` §7)
+  simply runs without MTP.
 - **The old C8 ceiling was a software dispatch limitation, not the GPUs.** A batching-related
   kernel-dispatch limitation was identified and corrected, increasing aggregate decode from
-  124/152 t/s to **266/260 t/s** at C12/C16 (+115 % / +71 %). (`docs/rdna2/RESULTS.md` §7)
+  124/152 t/s to **266/260 t/s** at C12/C16 (+115 % / +71 %).
 - **The one clearly-worse metric:** PLE n-gram lookup is **~3.4–3.8 ms** — CPU/sidecar-bound,
-  not transport; hidden under the GPU step today, but caps headroom. (`docs/rdna2/RESULTS.md` §3)
+  not transport; hidden under the GPU step today, but caps headroom.
 - **The switch↔CPU uplink negotiated differently across boots — Gen3 ×16 one boot, Gen4 ×8
   another — and it made no difference.** Both are the same ~15.8 GB/s/dir bandwidth class
-  (register-verified, `docs/rdna2/HARDWARE.md` "GPU link audit"), and long-prefill throughput showed
-  parity either way. The reason: GPU↔GPU traffic — the actual heavy lifting for TP/EP — never leaves
-  the PEX88096 switch fabric to touch that uplink at all; only host-facing traffic (and the PLE
-  n-gram gather) rides it. A slower or narrower CPU uplink than expected turned out to be a
-  non-issue for inference speed on this topology.
+  (register-verified), and long-prefill throughput showed parity either way. The reason: GPU↔GPU
+  traffic — the actual heavy lifting for TP/EP — never leaves the PEX88096 switch fabric to touch
+  that uplink at all; only host-facing traffic (and the PLE n-gram gather) rides it. A slower or
+  narrower CPU uplink than expected turned out to be a non-issue for inference speed on this topology.
 - **140–150 W/card is the all-round power point** (full decode, ~93 % prefill, best tok/s-per-kW);
-  the box now runs officially at **150 W**. Real prefill cliff sits below it. (`docs/rdna2/HARDWARE.md`)
+  the box now runs officially at **150 W**. Real prefill cliff sits below it.
 - **Prefix caching is partial on this hybrid model** (71 % token hits at 3.3k, near-full at 30k) —
-  a documented behavior of the hybrid attention/recurrent model, not a fault. (`docs/rdna2/RESULTS.md` §1b)
-
-## Repo map
-
-```
-README.md ................... this page
-docs/rdna2/
-  RESULTS.md ................ full results tables (all metrics + notes)
-  BASELINE.md ............... upstream fork's published reference numbers
-  METHODOLOGY.md ............ how every number was measured (tools, prompts, definitions)
-  HARDWARE.md ............... hardware & bring-up report (inventory, fabric, power, boot)
-  PLATFORM.md ............... host topology + retained E19 config (env knobs, overlays)
-  campaign/ ................. E00–E19 campaign archive (STATE / MEASUREMENTS / RETAINED_CONFIG /
-                             ACCEPTANCE / DEAD_ENDS / RESULTS + sha256 pins)
-  worklog/ .................. 110 KB redacted operator log: BRINGUP (85 KB, 09-06→09-09),
-                             VM207-MIGRATION, gpu-diag.sh
-tools/rdna2/ ................ bench.py · bench_ctx.py · validate.py · latency_rows.py ·
-                             ple_consistency_test.py (+ README; leapdragon-derived, Apache-2.0)
-data/ ....................... raw captures (suite.log)
-```
-
-## Data & raw evidence
-
-- **Serving**: decode (MTP=0 & MTP=3, 256/1024/long-context), prefill matrix (1k–30k fresh),
-  TTFT (cold/cached/agent-turn), vision TTFT, prefix-cache hit accounting → `RESULTS.md` §1/§1b.
-- **Kernel & comm**: one-shot all-reduce (eager/in-graph), NCCL share, fp16/int8 dense-GEMV
-  12-shape tables (route vs rocBLAS, kernel GB/s, relerr), profiled decode kernel budget.
-- **PLE**: per-hop round-trip stamps (median/mean/max over 2,500 decode launches).
-- **Host**: power/temperature/busy under decode, kernel-journal health.
-- **Bring-up**: link audits, power sweeps, crash/recovery episodes, PP-parity reconciliations —
-  all in `docs/rdna2/worklog/BRINGUP.md`.
-
-Raw captures live in `data/`; one-off measurements are reproducible with `tools/rdna2/`
-(`BASE_URL=http://<server>:8000 python3 tools/rdna2/bench.py 3 256`, etc.).
+  a documented behavior of the hybrid attention/recurrent model, not a fault.
 
 # NOTES & CAVEATS
 
 - **MTP comparisons require the acceptance rate** — MTP=0 is the clean yardstick, since MTP=3's
   speed varies with per-prompt draft-acceptance rate rather than being a fixed number.
-- All identifiers in published docs are redacted (`<…>` placeholders); container-inspection files
-  that may hold secrets are not published.
+- All identifiers in the internal engineering log are redacted (`<…>` placeholders);
+  container-inspection files that may hold secrets are not published anywhere.
 
 # HOUSEKEEPING
 
-- Hardware & bring-up: [`docs/rdna2/HARDWARE.md`](docs/rdna2/HARDWARE.md) · full work log:
-  [`docs/rdna2/worklog/`](docs/rdna2/worklog/README.md)
-- Platform & retained config: [`docs/rdna2/PLATFORM.md`](docs/rdna2/PLATFORM.md)
-- Measurements: [`docs/rdna2/RESULTS.md`](docs/rdna2/RESULTS.md) · methodology:
-  [`docs/rdna2/METHODOLOGY.md`](docs/rdna2/METHODOLOGY.md)
-- E19 campaign archive: [`docs/rdna2/campaign/`](docs/rdna2/campaign/README.md)
-- Tooling: [`tools/rdna2/README.md`](tools/rdna2/README.md) · raw data: [`data/`](data/)
-- `bench.py`, `bench_ctx.py`, `validate.py`, `ple_consistency_test.py` derive from
-  [leapdragon/vllm-rdna2-qwen](https://github.com/leapdragon/vllm-rdna2-qwen) (`tools/rdna2/`,
-  branch `rdna2/qwen38-flash-next`, Apache-2.0, in turn derived from vLLM-project/vLLM);
-  `latency_rows.py` is original. All Apache-2.0 — see `LICENSE`.
+- This repo is a standalone public summary. The full measurement archive, operator work log,
+  raw captures, and benchmarking tools are maintained in a private companion repository.
+- Benchmarking methodology and tooling derive in part from
+  [leapdragon/vllm-rdna2-qwen](https://github.com/leapdragon/vllm-rdna2-qwen) (Apache-2.0, in turn
+  derived from vLLM-project/vLLM).
