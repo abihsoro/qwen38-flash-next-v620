@@ -29,7 +29,7 @@ basically a variation of EPYC server-grade cpu). That system had 4 x16 slots, bo
 on a SINGLE x16 slot using a PCIe switch. That system's BIOS was designed to handle the large memory spacing and could handle
 the 4 32GB address spacing required by the GPUs. Would a simple, everyday motherboard be able to do the same? 
 
-It was a simple question: Right now (Summer 2026), can we build a usable frontier-level coder working for under $5000.
+It was a simple question: Right now (Summer 2026), can we build a usable frontier-level coder working for under $5000?
 
 Yes we can.
 
@@ -38,22 +38,22 @@ using (4) V620 GPUS. Stabily. Repeatably. When I learned how to setup 8-12 GPU m
 help me. It was days and weeks out of my life to learn the nitty-gritty of computer hardware. Learning on levels
 I never intended to want to know about. Learning that was, ultimately, the reason why this project was a success.
 
-I have so much hardware, the only parts I needed were the PEX88096 switch and the (4) V620s. You can't buy the mobo
+I have so much hardware, the only parts I needed for this project were the PEX88096 switch and the (4) V620s. You can't buy the mobo
 new anymore. Nor the CPU. But if I did have to: mobo, cpu, 64gb DDR4-2667 RAM, (2) PSUs (explained later) (2) NVME 
 drives (also explained later), old non-UEFI GPU (because I like to see what I'm doing) + switch + gpus comes to...
 
-$3900. 1000W (not great). Frontier level coding. Well, frontier six months ago (haha).
+Final cost: $3900. Power consumption: 1000W (not great). Voila: Frontier level coding (well, frontier six months ago, haha).
 
 This was a 2-part success story: Hardware and Software. I took care of the hardware design, assembly, and troubleshooting. 
 That tuning was much more than deciding what HW to use. It was understanding that some hardware issues will never be obvious 
-(i.e. 1000W power spikes on a single PSU? Nope.) The ability to differentiate a power drop caused by a demand spike versus 
+(i.e. are 1000W power spikes on a single PSU acceptable? Nope.) The ability to differentiate a power drop caused by a demand spike versus 
 an outright bad PSU? - nobody really writes that stuff down. Here's a short list of hardware-related 'stuff' necessary to make this work
 
   - BIOS settings - and not just what's the date and time (lol). 4G decoding, BAR re-size, MMIO, AER, it goes on...
   - Undervolting and OC'ing? The voltage that works for workstations and gaming might not work for inference. Weird but true.
   - Real vga card --> 2nd x16 slot and boot one time successfully BEFORE inserting your PCIe-PEX88096 adapter card. Yep. That's all.
   - PCIe link negotiation goes to the LOWEST speed of the system. Marginal physical contact? --> link-down negotiation
-  - AMD GPUs (not Nvidia GPUS) power draw THROUGH the slot (up to 50W). ROCm is not accurate. ATW is the only way to measure power.
+  - AMD GPUs (not Nvidia GPUS) also power draw THROUGH the slot (up to 50W). ROCm is not accurate. ATW is the only way to measure power.
   - Putting the switch with 4 GPUs on the same rail as the X570 mobo? No bueno. 'Off the wagon' or 'Off the PCIe bus' - you choose.
   - Cooling down 1000W running for hours. Starts to become industrial. But you don't HAVE to use a server case.
   - Bifurcation - shouldn't need to know that, but PEX88096 + X570 mobo = apparently you do.
@@ -67,10 +67,10 @@ So putting together this hardware system and getting it just to function by desi
   - PEX-88096 Gen4 PCIe switch (with 4 X16 slots) - mounted to custom case stand-offs
   - (2) HP 1200W server-grade PSUSs + ZSX breakout boards, mounted inside pre-built psu cage (common to mining rig cases)
     (1) PSU powered the GPUs. The other PSU powered everything else.
-  - Multiple CPU power, 24-pin mobo power splitters - the mobod and the switch required their own.
+  - Multiple CPU power, 24-pin mobo power splitters - the mobo and the switch required their own.
   - (4) AMD V620 GPUs - inserted into switch and fastened to rig case
 
-On the operating system, there was no question I would use Proxmox. The reasons for it are wide, vast, and insurmountably strong.
+On the operating system, there was no question I would use Proxmox. The reasons for it are wide and vast.
 But it does come with complications which I will not delve into here. Running hypervisors is a skill in, and of, itself. But, it 
 turns out that a linux container (LXC) ended up being the best way to run this inference rig anyway - because the GPUS don't
 HAVE to be passed through from the host to the LXC, as it would require if we were using a virtual machine (VM, e.g. Ubuntu).
