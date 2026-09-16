@@ -1,32 +1,37 @@
 # Qwen3.8-Flash-Next - 4× Radeon PRO V620 32GB (128GB Total) - 100 TPS Decode - 1250 TPS PP
 
-> **Credit / Acknowledgements.** This project measures, documents and builds on a deployment of
+> **Credit / Acknowledgements.** This project builds on a deployment of
 > **[leapdragon/vllm-rdna2-qwen](https://github.com/leapdragon/vllm-rdna2-qwen)** — Aron Hsiao's
 > vLLM fork that brings **Qwen3.8-Flash-Next** to **4× AMD Radeon PRO V620** (Navi 21 / gfx1030,
 > 32 GB) on TheRock ROCm 7.14, with the PLE n-gram CPU offload, the RDNA2 decode kernels and the
-> one-shot all-reduce. The reference numbers we compare against, much of the measurement methodology,
-> and several of the tools in `tools/rdna2/` all come from that repository (Apache-2.0, in turn
-> derived from [vLLM](https://github.com/vllm-project/vllm)); the E19 tuning work retained on the
-> serving box was itself built on top of it. Without leapdragon's work none of this would exist —
-> full attribution lives in [HOUSEKEEPING](#housekeeping).
+> one-shot all-reduce.
 
 Everything we did to get **Qwen3.8-Flash-Next (176 B, ~6 B active + 51 B-row CPU n-gram table)**
 serving at **~100 tokens/s decode single-stream (MTP=3) and ~68 t/s (MTP=0)** on a **4× Radeon PRO
 V620** box — and, once the batched-decode path is repaired, **~266 tokens/s of aggregate decode at
-12 concurrent users** —
-from hardware bring-up through a measured tuning campaign — captured here as data, tables,
-tooling and a full work log.
+12 concurrent users** — from hardware bring-up through a measured tuning campaign — captured here 
+as data, tables, tooling and a full work log.
 
 ## The story
 
 AI cloud compute became more expensive for me as every month went by. I could code an (equivalent) 40-50K LOC python 
 app with $300 in cloud AI compute in 2025. That cannot be touched for under $1000 (or more) now. I was a 
 crypto miner. I was a computer geek. So I decided to build the best inference rig I could for under $5K
-that could perform as well as Opus 4.X and GPT5.5 - the model I chose was Qwen3.8-Flash-Next. 
+that could perform as well as Opus 4.X and GPT5.5.
 
+The challenges were not whether it could be done - because it already had been done. The challenge was whether it could be
+done under the budget, but also with a much more usable 100 t/s. Budgetarily, this meant evaluating the rig using
+consumer-grade hardware versus server-grade hardware. And from the LLM-side, it meant we needed flexibility
+to the LLM, its setup, and molding the serving parameters to non-ideal hardware setups. This naturally leans toward MoE models
+versus dense models. Given these boundary conditions, I chose the Qwen3.8-Flash-Next model, which leapdragon had already shown
+can generate 60-65 tps (MTP0) on server-grade hardware (Threadripper could be considered high-end consumer-grade, but it is 
+basically a variation of EPYC server-grade cpu). That system had 4 x16 slots, both physical and logical. I want to know if we can run it
+on a SINGLE x16 slot using a PCIe switch. That system's BIOS was designed to handle the large memory spacing and could handle
+the 4 32GB address spacing required by the GPUs. Would a simple, everyday motherboard be able to do the same? 
 
+It was a simple question: Right now (Summer 2026), can we build a usable frontier-level coder working for under $5000.
 
-Yes.
+Yes we can.
 
 My rig, an X570 ASUS TUF mobo running with 64GB of DDR4-3000 and Ryzen 5950X is able to generate 100 TPS in MTP3 
 using (4) V620 GPUS. Stabily. Repeatably. When I learned how to setup 8-12 GPU mining rigs, there was no AI to
