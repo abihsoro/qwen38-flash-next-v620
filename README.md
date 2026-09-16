@@ -23,8 +23,8 @@ AI cloud compute became more expensive for me as every month went by. I could co
 app with $300 in cloud AI compute in 2025. That cannot be touched for under $1000 (or more) now. I was a 
 crypto miner. I was a computer geek. So I decided to build the best inference rig I could for under $5K
 that could perform as well as Opus 4.X and GPT5.5 - the model I chose was Qwen3.8-Flash-Next. It could fit in 128GB of VRAM.
-And that could be purchased for less than $2000 (as of August 2026) for some older models. But the rest of the hardware
-setup was a puzzle. But this is where crypto mining for 7 years provided a little bit of an edge. How many 
+And that could be purchased for less than $2000 for some older models. But the rest of the hardware setup was a puzzle. 
+But this is where crypto mining for 7 years provided a little bit of an edge. How many 
 x16 slots did I need, what speed do they need to run, how much power is required by the card through not
 just the VGA power cables directly, but through the slots. Everyone is using server-grade mobos (= $$$) - but 
 could I use consumer grade? The PCIe switch was always an option, but would a consumer grade mobo allocate
