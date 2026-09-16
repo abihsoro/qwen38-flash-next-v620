@@ -94,16 +94,15 @@ campaign, and a fair amount of hard-won humility about which knob actually matte
 **Bring-up (2026-09-06 → 09).** The cards went in behind a shared Broadcom PEX88096 switch on a
 Proxmox box, and for the first two days almost nothing stayed up. One bug looked exactly like GPU0
 was faulty — startup always wedged on whichever card the driver happened to enumerate first — until
-rotating the device order proved it was vLLM's rank-0 startup path, not the silicon, that was broken.
-Three separate warmup paths turned out to independently wedge ROCm's `hsa_executable_freeze` deep in
-the driver — a synthetic `logprobs` sampler check, a PLE doorbell timing quirk, and a structured-output
-grammar-mask warmup — three unrelated bugs sharing one downstream symptom, each needing its own fix.
-CUDA-graph mode looked like the good outcome — it booted clean, served fast, everything green — until
-a byte-level output diff caught it silently truncating generations to 11 tokens instead of 69. A
-plausible, healthy-looking deployment that was just wrong is scarier than a crash, and `validate.py`
-(not `/health`) became the real gate from that point on. Underneath all of it, a wedge that looked like
-a software deadlock turned out to be a genuine PCIe bus drop — a card falling off the bus entirely,
-traced back to a failing PSU.
+rotating the device order proved it was software, not the silicon, that was broken. Three separate,
+unrelated causes turned out to independently wedge ROCm's `hsa_executable_freeze` deep in the driver
+during warmup, all sharing one downstream symptom — each needed its own fix before the box would boot
+reliably. CUDA-graph mode looked like the good outcome — it booted clean, served fast, everything
+green — until further testing caught a correctness bug that made it produce silently wrong output. A
+plausible, healthy-looking deployment that was just wrong is scarier than a crash, and independent
+output verification (not just a health check) became the real gate from that point on. Underneath
+all of it, a wedge that looked like a software deadlock turned out to be a genuine PCIe bus drop — a
+card falling off the bus entirely, traced back to a failing PSU.
 
 **The tuning campaign (E00 → E19).** Once the box was stable, the work became systematic: nineteen
 numbered experiments against the serving kernels and dispatch paths, each one measured against a
@@ -138,16 +137,16 @@ different hardware entirely, building on
 [Tamalero/amd-v620-soft-unlock](https://github.com/Tamalero/amd-v620-soft-unlock)) had already proven
 these cards' stock 250 W floor could be unlocked via VBIOS patching, down to a supported 170 W. That
 groundwork informed this project's own approach to the power floor, but this box took the safer of the
-two available routes: a signed, PCI-ID-gated kernel-driver patch rather than a hex-edited VBIOS,
-avoiding the VBIOS route's harshest failure mode — the V620 has no function-level reset, so a wedged
-SMU from a bad VBIOS write means a full host reboot, every time.
+two available routes: a driver-level patch rather than a hex-edited VBIOS, avoiding the VBIOS route's
+harshest failure mode — the V620 has no function-level reset, so a wedged SMU from a bad VBIOS write
+means a full host reboot, every time.
 
 **Where it stands.** The box now serves the tuned E19 configuration in production, with a validated
 (but not yet promoted) fix for the concurrency ceiling sitting one config change away, and an operator
 work log that keeps catching its own mistakes in writing — twice, a throughput "regression" was
 initially blamed on power or hardware before turning out to be a CPU swapped during an outage, and
-later a stale PCI-bus-address service that silently stopped clearing switch ACS bits after the PCIe
-tree re-enumerated. What's proven is proven with byte-identical outputs and repeat runs; what's still
+later a boot-time configuration service that silently stopped working after the PCIe tree
+re-enumerated. What's proven is proven with byte-identical outputs and repeat runs; what's still
 open — the full acceptance suite, the concurrency overlay's promotion, a slower-than-reference n-gram
 lookup — is written down as open, not quietly dropped. The full, warts-and-all account lives in a
 private 1,800-line engineering log; everything below is a summary of what it produced.
@@ -162,7 +161,7 @@ evidence didn't cleanly settle it either way.
 |---|---|---|---|---|
 | 1 | Kernel/dispatch (E01–E19) | Systematic kernel- and dispatch-path optimization campaign (13 accepted/rejected experiments against the serving path) | Find every serving-path change that improves single-stream decode without altering output | About half kept, half rejected-with-data; **90.18→100.15 t/s (+11%)** final retained config, byte-identical outputs at every accepted step. Implementation specifics not published. |
 | 2 | Power | Cap sweep: 100 / 120 / 130 / 140 / **150** / 160 / 180 / 250 W | Find the real decode/prefill/efficiency/safety operating point | Decode flat 76.8→79.7 t/s across the whole range above 120 W; wall power nearly doubles at 250 W vs 140 W; 160 W and 180 W each dropped a card off the PCIe bus — **140–150 W kept**: simultaneously fastest, most efficient, and highest safe point |
-| 3 | Power | Driver power floor: signed `amdgpu.ko` patch, 250 W→120 W | Stock floor blocked testing anything below 250 W | Unlocked the whole sweep above — **kept** in production |
+| 3 | Power | Driver power floor: a driver-level patch, 250 W→120 W | Stock floor blocked testing anything below 250 W | Unlocked the whole sweep above — **kept** in production |
 | 4 | Power | VBIOS ODCAPS hex-edit unlock (separate standalone single-GPU rig) | Prove the unlock was possible before risking the production box | Worked, 158–187 W achievable — but judged riskier than the kernel-patch route (no function-level reset; a bad write means a full host reboot) — **not used on the production box** |
 | 5 | CPU | Ryzen 5 3600X vs Ryzen 9 5950X (same config, A/B/C sweep) | Isolate a mid-day throughput dip first suspected to be GPU/power-related | +5–7% decode, −6% TTFT from clock/IPC alone (3.8 GHz Zen2 → 4.5 GHz Zen3) — the dip **was the CPU**, not the GPUs |
 | 6 | CPU | LXC core allocation: 10 vs 30 cores | Check whether core count was limiting | ≤1% difference (noise); only ~2.3–2.5 cores of real demand — **cut to 10, no cost** |
@@ -171,7 +170,7 @@ evidence didn't cleanly settle it either way.
 | 9 | Concurrency | MTP=3 vs MTP=0 under concurrent load | Check whether speculative decoding survives batching | MTP=3 collapses (0.89× scaling, ~95 t/s ceiling); MTP=0 scales cleanly to 266 t/s — **MTP=0 adopted as the concurrent-serving config** |
 | 10 | Platform | VFIO/VM passthrough (VM207) vs LXC + host `amdgpu` | Test whether a VM path could unlock direct per-GPU VBIOS clock control | Guest P2P completely unavailable under VFIO (separate IOMMU domains); all-reduce fallback measured 29.60 t/s vs 99–100 t/s baseline (−70%) — **abandoned, reverted to LXC** |
 | 11 | Platform | VM207 VBIOS `romfile=` clock unlock (the actual reason the VM existed) | Test higher core/memory clocks only reachable via per-GPU VBIOS passthrough | ~5% gain — operator verdict "not worth it"; production stayed on stock clocks |
-| 12 | Platform | PCIe ACS-clearing service: fragile (hard-coded) vs robust (dynamic discovery) | A hard-coded service silently stopped working after the PCI tree re-enumerated on reboot, dropping GPU peer traffic to a slow path | Corrected — recovered decode from a degraded ~62 t/s back to **100.65–101.15 t/s** |
+| 12 | Platform | A PCIe fabric configuration service that stopped working after a reboot | An assumption baked into a boot-time service broke after the PCI tree changed, dropping GPU peer traffic to a slow path | Corrected — recovered decode from a degraded ~62 t/s back to **100.65–101.15 t/s** |
 | 13 | Platform | Single shared PSU vs dedicated GPU PSU + separate board/switch PSU | The rig hard-crashed twice under heavy coding-agent load with no software error signature (no AER, no device-lost) | Split-supply topology restored; no repeat crashes observed afterward — **kept as a hard stability requirement** |
 | 14 | This session | GPU device-node mapping and shared-memory allocation, corrected | Container's device list was wrong, and the default private `/dev/shm` was smaller than what the serving path needs | **Kept** — part of the standing container config |
 | 15 | This session | A GPU-communication library config fix, tested | A third-party library itself warns that an undeclared config option "can lead to hangs" — a plausible match for intermittent whole-engine stalls | **Inconclusive** — the patched container then crash-looped roughly every 20 minutes under load; reverted to the pre-patch config, which had the longer clean track record. This project's own worklog separately attributes the same crash window to the PSU/ACS issues above — root cause remains disputed |
