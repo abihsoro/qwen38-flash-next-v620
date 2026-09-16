@@ -6,12 +6,6 @@
 > 32 GB) on TheRock ROCm 7.14, with the PLE n-gram CPU offload, the RDNA2 decode kernels and the
 > one-shot all-reduce.
 
-Everything we did to get **Qwen3.8-Flash-Next (176 B, ~6 B active + 51 B-row CPU n-gram table)**
-serving at **~100 tokens/s decode single-stream (MTP=3) and ~68 t/s (MTP=0)** on a **4× Radeon PRO
-V620** box — and, once the batched-decode path is repaired, **~266 tokens/s of aggregate decode at
-12 concurrent users** — from hardware bring-up through a measured tuning campaign — summarized here
-as a narrative, data, and tables. The full engineering log, raw data, and tooling are maintained in
-a private companion repository.
 
 ## The story
 
