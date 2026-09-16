@@ -1,58 +1,59 @@
 # Qwen3.8-Flash-Next - 4× Radeon PRO V620 32GB (128GB Total) - 100 TPS Decode - 1250 TPS PP
 
-> **Credit / Acknowledgements.** This project measures, documents and builds on a deployment of
+> **Credit / Acknowledgements.** This project builds on a deployment of
 > **[leapdragon/vllm-rdna2-qwen](https://github.com/leapdragon/vllm-rdna2-qwen)** — Aron Hsiao's
 > vLLM fork that brings **Qwen3.8-Flash-Next** to **4× AMD Radeon PRO V620** (Navi 21 / gfx1030,
 > 32 GB) on TheRock ROCm 7.14, with the PLE n-gram CPU offload, the RDNA2 decode kernels and the
-> one-shot all-reduce. The reference numbers we compare against, much of the measurement methodology,
-> and several of the tools in `tools/rdna2/` all come from that repository (Apache-2.0, in turn
-> derived from [vLLM](https://github.com/vllm-project/vllm)); the E19 tuning work retained on the
-> serving box was itself built on top of it. Without leapdragon's work none of this would exist —
-> full attribution lives in [HOUSEKEEPING](#housekeeping).
+> one-shot all-reduce.
 
 Everything we did to get **Qwen3.8-Flash-Next (176 B, ~6 B active + 51 B-row CPU n-gram table)**
 serving at **~100 tokens/s decode single-stream (MTP=3) and ~68 t/s (MTP=0)** on a **4× Radeon PRO
 V620** box — and, once the batched-decode path is repaired, **~266 tokens/s of aggregate decode at
-12 concurrent users** —
-from hardware bring-up through a measured tuning campaign — captured here as data, tables,
-tooling and a full work log.
+12 concurrent users** — from hardware bring-up through a measured tuning campaign — captured here 
+as data, tables, tooling and a full work log.
 
 ## The story
 
 AI cloud compute became more expensive for me as every month went by. I could code an (equivalent) 40-50K LOC python 
 app with $300 in cloud AI compute in 2025. That cannot be touched for under $1000 (or more) now. I was a 
 crypto miner. I was a computer geek. So I decided to build the best inference rig I could for under $5K
-that could perform as well as Opus 4.X and GPT5.5 - the model I chose was Qwen3.8-Flash-Next. It could fit in 128GB of VRAM.
-And that could be purchased for less than $2000 (as of August 2026) for some older models. But the rest of the hardware
-setup was a puzzle. But this is where crypto mining for 7 years provided a little bit of an edge. How many 
-x16 slots did I need, what speed do they need to run, how much power is required by the card through not
-just the VGA power cables directly, but through the slots. Everyone is using server-grade mobos (= $$$) - but 
-could I use consumer grade? The PCIe switch was always an option, but would a consumer grade mobo allocate
-the proper memory address space, bar size, recognize 4 gpus moving through a single (only) x16 slot on the board?
+that could perform as well as Opus 4.X and GPT5.5.
 
-Yes.
+The challenges were not whether it could be done - because it already had been done. The challenge was whether it could be
+done under the budget, but also with a much more usable 100 t/s. Budgetarily, this meant evaluating the rig using
+consumer-grade hardware versus server-grade hardware. And from the LLM-side, it meant we needed flexibility
+to the LLM, its setup, and molding the serving parameters to non-ideal hardware setups. This naturally leans toward MoE models
+versus dense models. Given these boundary conditions, I chose the Qwen3.8-Flash-Next model, which leapdragon had already shown
+can generate 60-65 tps (MTP0) on server-grade hardware (Threadripper could be considered high-end consumer-grade, but it is 
+basically a variation of EPYC server-grade cpu). That system had 4 x16 slots, both physical and logical. I want to know if we can run it
+on a SINGLE x16 slot using a PCIe switch. That system's BIOS was designed to handle the large memory spacing and could handle
+the 4 32GB address spacing required by the GPUs. Would a simple, everyday motherboard be able to do the same? 
+
+It was a simple question: Right now (Summer 2026), can we build a usable frontier-level coder working for under $5000?
+
+Yes we can.
 
 My rig, an X570 ASUS TUF mobo running with 64GB of DDR4-3000 and Ryzen 5950X is able to generate 100 TPS in MTP3 
 using (4) V620 GPUS. Stabily. Repeatably. When I learned how to setup 8-12 GPU mining rigs, there was no AI to
 help me. It was days and weeks out of my life to learn the nitty-gritty of computer hardware. Learning on levels
 I never intended to want to know about. Learning that was, ultimately, the reason why this project was a success.
 
-I have so much hardware, the only parts I needed were the PEX88096 switch and the (4) V620s. You can't buy the mobo
+I have so much hardware, the only parts I needed for this project were the PEX88096 switch and the (4) V620s. You can't buy the mobo
 new anymore. Nor the CPU. But if I did have to: mobo, cpu, 64gb DDR4-2667 RAM, (2) PSUs (explained later) (2) NVME 
 drives (also explained later), old non-UEFI GPU (because I like to see what I'm doing) + switch + gpus comes to...
 
-$3900. 1000W (not great). Frontier level coding. Well, frontier six months ago (haha).
+Final cost: $3900. Power consumption: 1000W (not great). Voila: Frontier level coding (well, frontier six months ago, haha).
 
 This was a 2-part success story: Hardware and Software. I took care of the hardware design, assembly, and troubleshooting. 
 That tuning was much more than deciding what HW to use. It was understanding that some hardware issues will never be obvious 
-(i.e. 1000W power spikes on a single PSU? Nope.) The ability to differentiate a power drop caused by a demand spike versus 
+(i.e. are 1000W power spikes on a single PSU acceptable? Nope.) The ability to differentiate a power drop caused by a demand spike versus 
 an outright bad PSU? - nobody really writes that stuff down. Here's a short list of hardware-related 'stuff' necessary to make this work
 
   - BIOS settings - and not just what's the date and time (lol). 4G decoding, BAR re-size, MMIO, AER, it goes on...
   - Undervolting and OC'ing? The voltage that works for workstations and gaming might not work for inference. Weird but true.
   - Real vga card --> 2nd x16 slot and boot one time successfully BEFORE inserting your PCIe-PEX88096 adapter card. Yep. That's all.
   - PCIe link negotiation goes to the LOWEST speed of the system. Marginal physical contact? --> link-down negotiation
-  - AMD GPUs (not Nvidia GPUS) power draw THROUGH the slot (up to 50W). ROCm is not accurate. ATW is the only way to measure power.
+  - AMD GPUs (not Nvidia GPUS) also power draw THROUGH the slot (up to 50W). ROCm is not accurate. ATW is the only way to measure power.
   - Putting the switch with 4 GPUs on the same rail as the X570 mobo? No bueno. 'Off the wagon' or 'Off the PCIe bus' - you choose.
   - Cooling down 1000W running for hours. Starts to become industrial. But you don't HAVE to use a server case.
   - Bifurcation - shouldn't need to know that, but PEX88096 + X570 mobo = apparently you do.
@@ -66,10 +67,10 @@ So putting together this hardware system and getting it just to function by desi
   - PEX-88096 Gen4 PCIe switch (with 4 X16 slots) - mounted to custom case stand-offs
   - (2) HP 1200W server-grade PSUSs + ZSX breakout boards, mounted inside pre-built psu cage (common to mining rig cases)
     (1) PSU powered the GPUs. The other PSU powered everything else.
-  - Multiple CPU power, 24-pin mobo power splitters - the mobod and the switch required their own.
+  - Multiple CPU power, 24-pin mobo power splitters - the mobo and the switch required their own.
   - (4) AMD V620 GPUs - inserted into switch and fastened to rig case
 
-On the operating system, there was no question I would use Proxmox. The reasons for it are wide, vast, and insurmountably strong.
+On the operating system, there was no question I would use Proxmox. The reasons for it are wide and vast.
 But it does come with complications which I will not delve into here. Running hypervisors is a skill in, and of, itself. But, it 
 turns out that a linux container (LXC) ended up being the best way to run this inference rig anyway - because the GPUS don't
 HAVE to be passed through from the host to the LXC, as it would require if we were using a virtual machine (VM, e.g. Ubuntu).
